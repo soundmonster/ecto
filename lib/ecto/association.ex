@@ -249,6 +249,7 @@ defmodule Ecto.Association do
 
       {curr_rel, next, counter + 1, curr_rel.out_key}
     end)
+    IO.inspect(dest_out_key, label: :dest_out_key)
 
     final_bind = Ecto.Query.Builder.count_binds(query) - 1
 
@@ -354,13 +355,30 @@ defmodule Ecto.Association do
   end
 
   # TODO docs
-  def composite_assoc_query(query, _binding_src, [], []) do
+  def composite_assoc_query(query, _binding_src, [], _values) do
     query
   end
-  def composite_assoc_query(query, binding_dst, [dst_key | dst_keys], [value | values]) do
-    # TODO
-    [query, binding_dst, [dst_key | dst_keys], [value | values]] |> IO.inspect(label: :composite_assoc_query)
+
+  def composite_assoc_query(query, binding_dst, [dst_key | dst_keys], [[single_value | values_rest]]) do
     query
+    |> where([binding_dst], field(binding_dst, ^dst_key) == ^single_value)
+    |> composite_assoc_query(binding_dst, dst_keys, values_rest)
+  end
+
+  def composite_assoc_query(query, binding_dst, [dst_key | dst_keys], [[_|_] | _] = values) do
+    # is there a better way of matching on a nonempty list of lists?
+    values_for_this_key = Enum.map(values, &hd/1)
+    values_rest = Enum.map(values, &tl/1)
+
+    query
+    |> where([binding_dst], field(binding_dst, ^dst_key) in ^values_for_this_key)
+    |> composite_assoc_query(binding_dst, dst_keys, values_rest)
+  end
+
+  def composite_assoc_query(query, binding_src, dst_keys, values) do
+    # TODO remove before merging as this case should not happen
+    binding() |> IO.inspect(label: :composite_assoc_query)
+    raise FunctionClauseError
   end
 
   @doc """
@@ -798,6 +816,7 @@ defmodule Ecto.Association.Has do
   @impl true
   def joins_query(%{related_key: related_key, owner: owner, owner_key: owner_key, queryable: queryable} = assoc) do
     # TODO find out how to handle a dynamic list of fields here
+    # IO.inspect(assoc, label: :joins_query)
     from(o in owner, join: q in ^queryable, on: field(q, ^hd(related_key)) == field(o, ^hd(owner_key)))
     |> Ecto.Association.composite_joins_query(0, 1, tl(related_key), tl(owner_key))
     |> Ecto.Association.combine_joins_query(assoc.where, 1)
@@ -805,6 +824,7 @@ defmodule Ecto.Association.Has do
 
   @impl true
   def assoc_query(%{related_key: related_key, queryable: queryable} = assoc, query, [value]) do
+    IO.inspect([assoc: assoc, query: query, value: value], label: :assoc_query)
     from(x in (query || queryable), where: field(x, ^hd(related_key)) == ^hd(value))
     |> Ecto.Association.composite_assoc_query(0, tl(related_key), tl(value))
     |> Ecto.Association.combine_assoc_query(assoc.where)
@@ -812,6 +832,7 @@ defmodule Ecto.Association.Has do
 
   @impl true
   def assoc_query(%{related_key: related_key, queryable: queryable} = assoc, query, values) do
+    IO.inspect([assoc: assoc, query: query, values: values], label: :assoc_query)
     from(x in (query || queryable), where: field(x, ^hd(related_key)) in ^Enum.map(values, &hd/1))
     |> Ecto.Association.composite_assoc_query(0, tl(related_key), Enum.map(values, &tl/1))
     |> Ecto.Association.combine_assoc_query(assoc.where)
@@ -1098,6 +1119,7 @@ defmodule Ecto.Association.BelongsTo do
 
   @impl true
   def assoc_query(%{related_key: related_key, queryable: queryable} = assoc, query, [value]) do
+    IO.inspect([assoc: assoc, query: query, value: value], label: :assoc_query)
     from(x in (query || queryable), where: field(x, ^hd(related_key)) == ^hd(value))
     |> Ecto.Association.composite_assoc_query(0, tl(related_key), tl(value))
     |> Ecto.Association.combine_assoc_query(assoc.where)
@@ -1105,6 +1127,7 @@ defmodule Ecto.Association.BelongsTo do
 
   @impl true
   def assoc_query(%{related_key: related_key, queryable: queryable} = assoc, query, values) do
+    IO.inspect([assoc: assoc, query: query, values: values], label: :assoc_query)
     from(x in (query || queryable), where: field(x, ^hd(related_key)) in ^Enum.map(values, &hd/1))
     |> Ecto.Association.composite_assoc_query(0, tl(related_key), Enum.map(values, &tl/1))
     |> Ecto.Association.combine_assoc_query(assoc.where)

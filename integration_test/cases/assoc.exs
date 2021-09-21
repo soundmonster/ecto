@@ -753,6 +753,28 @@ defmodule Ecto.Integration.AssocTest do
     assert perma.post_id == nil
   end
 
+  test "belongs_to changeset assoc on composite key" do
+
+    changeset =
+      %CompositePk{a: 1, b: 2}
+      |> Ecto.Changeset.change()
+      |> Ecto.Changeset.put_assoc(:posts, [%Post{title: "1"}])
+
+    composite = TestRepo.insert!(changeset)
+    assert [post] = composite.posts
+    assert post.id
+    assert post.composite_a == composite.a
+    assert post.composite_b == composite.b
+    assert post.title == "1"
+    # composite = TestRepo.get!(from(Composite, preload: [:post]), [composite.a, composite.b])
+    # assert composite.post.title == "1"
+
+    post = TestRepo.get!(from(Post, preload: [:composite]), post.id)
+    assert post.composite.a == 1
+    assert post.composite.b == 2
+  end
+
+
   test "belongs_to changeset assoc (on_replace: :update)" do
     # Insert new
     changeset =

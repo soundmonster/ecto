@@ -1,5 +1,5 @@
 import Ecto.Query, only: [from: 1, from: 2, join: 4, join: 5, distinct: 3, where: 3]
-
+require Util # TODO delete
 defmodule Ecto.Association.NotLoaded do
   @moduledoc """
   Struct returned by associations when they are not loaded.
@@ -249,7 +249,7 @@ defmodule Ecto.Association do
 
       {curr_rel, next, counter + 1, curr_rel.out_key}
     end)
-    IO.inspect(dest_out_key, label: :dest_out_key)
+    Util.inspect(dest_out_key)
 
     final_bind = Ecto.Query.Builder.count_binds(query) - 1
 
@@ -335,7 +335,7 @@ defmodule Ecto.Association do
   end
   def composite_joins_query(query, binding_src, binding_dst, [src_key | src_keys], [dst_key | dst_keys]) do
     # TODO
-    [query, binding_src, binding_dst, [src_key | src_keys], [dst_key | dst_keys]] |> IO.inspect(label: :composite_joins_query)
+    [query, binding_src, binding_dst, [src_key | src_keys], [dst_key | dst_keys]] |> Util.inspect()
     query
   end
 
@@ -375,9 +375,16 @@ defmodule Ecto.Association do
     |> composite_assoc_query(binding_dst, dst_keys, values_rest)
   end
 
+  # TODO why do we need this extra case?
+  def composite_assoc_query(query, binding_dst, [dst_key | dst_keys], [single_value | values_rest]) do
+    query
+    |> where([binding_dst], field(binding_dst, ^dst_key) == ^single_value)
+    |> composite_assoc_query(binding_dst, dst_keys, values_rest)
+  end
+
   def composite_assoc_query(query, binding_src, dst_keys, values) do
     # TODO remove before merging as this case should not happen
-    binding() |> IO.inspect(label: :composite_assoc_query)
+    binding() |> Util.inspect()
     raise FunctionClauseError
   end
 
@@ -682,6 +689,11 @@ defmodule Ecto.Association do
   def missing_fields(queryable, related_key) do
     Enum.filter related_key, &is_nil(queryable.__schema__(:type, &1))
   end
+
+  def label(env) do
+    {fun, arity} = env.function
+    "#{env.module}.#{fun}/#{arity} #{env.line}"
+  end
 end
 
 defmodule Ecto.Association.Has do
@@ -816,7 +828,7 @@ defmodule Ecto.Association.Has do
   @impl true
   def joins_query(%{related_key: related_key, owner: owner, owner_key: owner_key, queryable: queryable} = assoc) do
     # TODO find out how to handle a dynamic list of fields here
-    # IO.inspect(assoc, label: :joins_query)
+    # Util.inspect(assoc)
     from(o in owner, join: q in ^queryable, on: field(q, ^hd(related_key)) == field(o, ^hd(owner_key)))
     |> Ecto.Association.composite_joins_query(0, 1, tl(related_key), tl(owner_key))
     |> Ecto.Association.combine_joins_query(assoc.where, 1)
@@ -824,7 +836,7 @@ defmodule Ecto.Association.Has do
 
   @impl true
   def assoc_query(%{related_key: related_key, queryable: queryable} = assoc, query, [value]) do
-    IO.inspect([assoc: assoc, query: query, value: value], label: :assoc_query)
+    Util.inspect([assoc: assoc, query: query, value: value])
     from(x in (query || queryable), where: field(x, ^hd(related_key)) == ^hd(value))
     |> Ecto.Association.composite_assoc_query(0, tl(related_key), tl(value))
     |> Ecto.Association.combine_assoc_query(assoc.where)
@@ -832,7 +844,7 @@ defmodule Ecto.Association.Has do
 
   @impl true
   def assoc_query(%{related_key: related_key, queryable: queryable} = assoc, query, values) do
-    IO.inspect([assoc: assoc, query: query, values: values], label: :assoc_query)
+    Util.inspect([assoc: assoc, query: query, values: values])
     from(x in (query || queryable), where: field(x, ^hd(related_key)) in ^Enum.map(values, &hd/1))
     |> Ecto.Association.composite_assoc_query(0, tl(related_key), Enum.map(values, &tl/1))
     |> Ecto.Association.combine_assoc_query(assoc.where)
@@ -840,7 +852,7 @@ defmodule Ecto.Association.Has do
 
   @impl true
   def preload_info(%{related_key: related_key} = refl) do
-    {:assoc, refl, {0, related_key}}
+    {:assoc, refl, {0, related_key}} |> Util.inspect()
   end
 
   @impl true
@@ -939,10 +951,24 @@ defmodule Ecto.Association.Has do
     end
   end
 
-  defp on_delete_query(%{owner_key: owner_key, related_key: related_key,
+  defp on_delete_query(%{owner_key: [owner_key], related_key: [related_key],
                          queryable: queryable}, parent) do
+                         Util.inspect(binding())
     if value = Map.get(parent, owner_key) do
       from x in queryable, where: field(x, ^related_key) == ^value
+    end
+  end
+
+  defp on_delete_query(%{owner_key: owner_key, related_key: related_key,
+                         queryable: queryable}, parent) do
+                         Util.inspect(binding())
+    values = Enum.map(owner_key, &Map.get(parent, &1))
+    if values != [] && Enum.all?(values) do
+      related_key
+      |> Enum.zip(values)
+      |> Enum.reduce(from(x in queryable), fn {related_key_field, value}, query ->
+        from(x in query, where: field(x, ^related_key_field) == ^ value)
+      end)
     end
   end
 end
@@ -1119,7 +1145,7 @@ defmodule Ecto.Association.BelongsTo do
 
   @impl true
   def assoc_query(%{related_key: related_key, queryable: queryable} = assoc, query, [value]) do
-    IO.inspect([assoc: assoc, query: query, value: value], label: :assoc_query)
+    Util.inspect([assoc: assoc, query: query, value: value])
     from(x in (query || queryable), where: field(x, ^hd(related_key)) == ^hd(value))
     |> Ecto.Association.composite_assoc_query(0, tl(related_key), tl(value))
     |> Ecto.Association.combine_assoc_query(assoc.where)
@@ -1127,7 +1153,7 @@ defmodule Ecto.Association.BelongsTo do
 
   @impl true
   def assoc_query(%{related_key: related_key, queryable: queryable} = assoc, query, values) do
-    IO.inspect([assoc: assoc, query: query, values: values], label: :assoc_query)
+    Util.inspect([assoc: assoc, query: query, values: values])
     from(x in (query || queryable), where: field(x, ^hd(related_key)) in ^Enum.map(values, &hd/1))
     |> Ecto.Association.composite_assoc_query(0, tl(related_key), Enum.map(values, &tl/1))
     |> Ecto.Association.combine_assoc_query(assoc.where)

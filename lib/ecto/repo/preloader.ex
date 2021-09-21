@@ -1,4 +1,5 @@
 defmodule Ecto.Repo.Preloader do
+  require Util
   # The module invoked by user defined repo_names
   # for preload related functionality.
   @moduledoc false
@@ -364,18 +365,16 @@ defmodule Ecto.Repo.Preloader do
 
   defp load_assoc({:assoc, assoc, ids}, struct) do
     %{field: field, owner_key: owner_key, cardinality: cardinality} = assoc
-    Enum.reduce owner_key, struct, fn owner_key_field, struct ->
-      key = Map.fetch!(struct, owner_key_field)
+    key = Enum.map(owner_key, fn owner_key_field -> Map.fetch!(struct, owner_key_field) end)
 
-      loaded =
-        case ids do
-          %{^key => value} -> value
-          _ when cardinality == :many -> []
-          _ -> nil
-        end
+    loaded =
+      case ids do
+        %{^key => value} -> value
+        _ when cardinality == :many -> []
+        _ -> nil
+      end
 
-      Map.put(struct, field, loaded)
-    end
+    Map.put(struct, field, loaded)
   end
 
   defp load_through({:through, assoc, throughs}, struct) do

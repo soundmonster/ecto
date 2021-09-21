@@ -301,6 +301,18 @@ defmodule Ecto.Repo.Preloader do
   end
 
   # TODO deprecated
+  defp related_key_to_fields(query, {pos, keys, types}) do
+    keys
+    |> Enum.zip(types)
+    |> Enum.map(fn {key, field_type} ->
+      field_ast = {{:., [], [{:&, [], [related_key_pos(query, pos)]}, key]}, [], []}
+      {:type, [], [field_ast, field_type]}
+    end)
+  end
+
+
+  # TODO deprecated
+  # TODO remove these functions completely, use plural
   defp related_key_to_field(query, {pos, key, field_type}) do
     field_ast = related_key_to_field(query, {pos, key})
 

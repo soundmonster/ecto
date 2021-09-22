@@ -1,4 +1,4 @@
-import Ecto.Query, only: [from: 1, from: 2, join: 4, join: 5, distinct: 3, where: 3]
+import Ecto.Query, only: [from: 1, from: 2, join: 4, join: 5, distinct: 3, where: 3, dynamic: 2]
 require Util # TODO delete
 defmodule Ecto.Association.NotLoaded do
   @moduledoc """
@@ -1375,14 +1375,30 @@ defmodule Ecto.Association.ManyToMany do
     ]
   end
 
+  def on_through_fields([{dst_key, src_key}] = _fields) do
+    dynamic([src, dst], field(dst, ^dst_key) == field(src, ^src_key))
+  end
+
+  def on_through_fields([{dst_key, src_key} | fields]) do
+    dynamic([src, dst], field(dst, ^dst_key) == field(src, ^src_key) and ^on_through_fields(fields))
+  end
+
+  def on_related_fields([{dst_key, src_key}] = _fields) do
+    dynamic([_, dst, src], field(dst, ^dst_key) == field(src, ^src_key))
+  end
+
+  def on_related_fields([{dst_key, src_key} | fields]) do
+    dynamic([_, dst, src], field(dst, ^dst_key) == field(src, ^src_key) and ^on_related_fields(fields))
+  end
+
   @impl true
   def joins_query(%{owner: owner, queryable: queryable,
                     join_through: join_through, join_keys: join_keys} = assoc) do
-    [{join_owner_key, owner_key}, {join_related_key, related_key}] = join_keys
+    [join_through_keys, join_related_keys] = join_keys
 
-    from(o in owner,
-      join: j in ^join_through, on: field(j, ^join_owner_key) == field(o, ^owner_key),
-      join: q in ^queryable, on: field(j, ^join_related_key) == field(q, ^related_key))
+    from(o in owner, # as: :owner,
+      join: j in ^join_through, on: ^on_through_fields(join_through_keys),
+      join: q in ^queryable, on: ^on_related_fields(join_related_keys))
     |> Ecto.Association.combine_joins_query(assoc.where, 2)
     |> Ecto.Association.combine_joins_query(assoc.join_where, 1)
   end
@@ -1394,7 +1410,8 @@ defmodule Ecto.Association.ManyToMany do
   @impl true
   def assoc_query(assoc, query, values) do
     %{queryable: queryable, join_through: join_through, join_keys: join_keys, owner: owner} = assoc
-    [{join_owner_key, owner_key}, {join_related_key, related_key}] = join_keys
+    # TODO support composite keys here
+    [[{join_owner_key, owner_key}], [{join_related_key, related_key}]] = join_keys
 
     owner_key_type = owner.__schema__(:type, owner_key)
 
@@ -1459,7 +1476,6 @@ defmodule Ecto.Association.ManyToMany do
 
     case apply(repo, action, [changeset, opts]) do
       {:ok, related} ->
-        # TODO handle more than one key field
         [join_through_keys, join_related_keys] = join_keys
         owner_keys = Keyword.values(join_through_keys)
         related_keys = Keyword.values(join_related_keys)

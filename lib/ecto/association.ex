@@ -1064,7 +1064,7 @@ defmodule Ecto.Association.HasThrough do
   end
 
   @impl true
-  def assoc_query(%{owner: owner, through: through} = assoc, query, values) do
+  def assoc_query(%{owner: owner, through: through}, _query, values) do
     Ecto.Association.filter_through_chain(owner, through, values)
   end
 end
@@ -1284,16 +1284,20 @@ defmodule Ecto.Association.ManyToMany do
     related = Ecto.Association.related_from_query(queryable, name)
 
     join_keys = opts[:join_keys]
+    validate_join_keys!(name, join_keys)
     join_through = opts[:join_through]
-    validate_join_through(name, join_through)
+    validate_join_through!(name, join_through)
 
     {owner_key, join_keys} =
       case join_keys do
         [{join_owner_key, owner_key}, {join_related_key, related_key}]
             when is_atom(join_owner_key) and is_atom(owner_key) and
                  is_atom(join_related_key) and is_atom(related_key) ->
-          # TODO check how we can express composite join keys, too
+          join_keys = [[{join_owner_key, owner_key}], [{join_related_key, related_key}]]
           {[owner_key], join_keys}
+        [join_keys_to_through, join_keys_to_related]
+            when is_list(join_keys_to_through) and is_list(join_keys_to_related) ->
+          {Keyword.values(join_keys_to_through), join_keys}
         nil ->
           {[:id], default_join_keys(module, related)}
         _ ->
@@ -1365,8 +1369,10 @@ defmodule Ecto.Association.ManyToMany do
   end
 
   defp default_join_keys(module, related) do
-    [{Ecto.Association.association_key(module, :id), :id},
-     {Ecto.Association.association_key(related, :id), :id}]
+    [
+      [{Ecto.Association.association_key(module, :id), :id}],
+      [{Ecto.Association.association_key(related, :id), :id}]
+    ]
   end
 
   @impl true
@@ -1427,14 +1433,19 @@ defmodule Ecto.Association.ManyToMany do
 
   def on_repo_change(%{join_keys: join_keys, join_through: join_through},
                      %{repo: repo, data: owner}, %{action: :delete, data: related}, adapter, opts) do
-    [{join_owner_key, owner_key}, {join_related_key, related_key}] = join_keys
-    owner_value = dump! :delete, join_through, owner, owner_key, adapter
-    related_value = dump! :delete, join_through, related, related_key, adapter
+    [join_through_keys, join_related_keys] = join_keys
+    owner_values = dump! :delete, join_through, owner, Keyword.values(join_through_keys), adapter
+    related_values = dump! :delete, join_through, related, Keyword.values(join_related_keys), adapter
 
-    query =
-      from j in join_through,
-        where: field(j, ^join_owner_key) == ^owner_value and
-               field(j, ^join_related_key) == ^related_value
+
+    join_fields = Keyword.keys(join_through_keys) ++ Keyword.keys(join_related_keys)
+    join_values = owner_values ++ related_values
+
+    query = join_fields
+            |> Enum.zip(join_values)
+            |> Enum.reduce(from(j in join_through), fn {field, value}, query ->
+              where(query, [j], field(j, ^field) == ^value)
+            end)
 
     query = %{query | prefix: owner.__meta__.prefix}
     repo.delete_all(query, opts)
@@ -1448,12 +1459,19 @@ defmodule Ecto.Association.ManyToMany do
 
     case apply(repo, action, [changeset, opts]) do
       {:ok, related} ->
-        [{join_owner_key, owner_key}, {join_related_key, related_key}] = join_keys
+        # TODO handle more than one key field
+        [join_through_keys, join_related_keys] = join_keys
+        owner_keys = Keyword.values(join_through_keys)
+        related_keys = Keyword.values(join_related_keys)
+        # [[{join_owner_key, owner_key}], [{join_related_key, related_key}]] = join_keys
 
-        if insert_join?(parent_changeset, changeset, field, related_key) do
-          owner_value = dump! :insert, join_through, owner, owner_key, adapter
-          related_value = dump! :insert, join_through, related, related_key, adapter
-          data = %{join_owner_key => owner_value, join_related_key => related_value}
+        if insert_join?(parent_changeset, changeset, field, related_keys) do
+          owner_values = dump! :insert, join_through, owner, owner_keys, adapter
+          related_values = dump! :insert, join_through, related, related_keys, adapter
+          data =
+            (Keyword.keys(join_through_keys) ++ Keyword.keys(join_related_keys))
+            |> Enum.zip(owner_values ++ related_values)
+            |> Map.new
 
           case insert_join(join_through, refl, parent_changeset, data, opts) do
             {:error, join_changeset} ->
@@ -1471,24 +1489,30 @@ defmodule Ecto.Association.ManyToMany do
     end
   end
 
-  defp validate_join_through(name, nil) do
-    raise ArgumentError, "many_to_many #{inspect name} associations require the :join_through option to be given"
-  end
-  defp validate_join_through(_, join_through) when is_atom(join_through) or is_binary(join_through) do
+  defp validate_join_keys!(_name, _join_keys) do
+    # TODO
     :ok
   end
-  defp validate_join_through(name, _join_through) do
+  defp validate_join_through!(name, nil) do
+    raise ArgumentError, "many_to_many #{inspect name} associations require the :join_through option to be given"
+  end
+  defp validate_join_through!(_, join_through) when is_atom(join_through) or is_binary(join_through) do
+    :ok
+  end
+  defp validate_join_through!(name, _join_through) do
     raise ArgumentError,
       "many_to_many #{inspect name} associations require the :join_through option to be " <>
       "an atom (representing a schema) or a string (representing a table)"
   end
 
-  defp insert_join?(%{action: :insert}, _, _field, _related_key), do: true
-  defp insert_join?(_, %{action: :insert}, _field, _related_key), do: true
-  defp insert_join?(%{data: owner}, %{data: related}, field, related_key) do
-    current_key = Map.fetch!(related, related_key)
-    not Enum.any? Map.fetch!(owner, field), fn child ->
-      Map.get(child, related_key) == current_key
+  defp insert_join?(%{action: :insert}, _, _field, _related_keys), do: true
+  defp insert_join?(_, %{action: :insert}, _field, _related_keys), do: true
+  defp insert_join?(%{data: owner}, %{data: related}, field, related_keys) do
+    Enum.all? related_keys, fn related_key ->
+      current_key = Map.fetch!(related, related_key)
+      not Enum.any? Map.fetch!(owner, field), fn child ->
+        Map.get(child, related_key) == current_key
+      end
     end
   end
 
@@ -1513,6 +1537,11 @@ defmodule Ecto.Association.ManyToMany do
     Map.get(struct, field) || raise "could not #{op} join entry because `#{field}` is nil in #{inspect struct}"
   end
 
+  defp dump!(action, join_through, struct, fields, adapter) when is_list(fields) do
+    Enum.map(fields, &dump!(action, join_through, struct, &1, adapter))
+  end
+
+  # TODO optimize away single field dump!
   defp dump!(action, join_through, struct, field, adapter) when is_binary(join_through) do
     value = field!(action, struct, field)
     type  = struct.__struct__.__schema__(:type, field)

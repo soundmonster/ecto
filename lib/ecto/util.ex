@@ -2,8 +2,7 @@
 defmodule Util do
   defmacro inspect(term) do
     quote do
-      # IO.inspect(unquote(term), label: Util.label(__ENV__))
-      unquote(term)
+      IO.inspect(unquote(term), label: Util.label(__ENV__))
     end
   end
 

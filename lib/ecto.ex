@@ -507,9 +507,7 @@ defmodule Ecto do
       end
 
     schema = hd(structs).__struct__
-    refl = %type{owner_key: owner_key} = Ecto.Association.association_from_schema!(schema, assoc)
-    require Util
-    Util.inspect(type: type, owner_key: owner_key)
+    refl = %{owner_key: owner_key} = Ecto.Association.association_from_schema!(schema, assoc)
 
     values =
       structs

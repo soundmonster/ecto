@@ -1988,6 +1988,7 @@ defmodule Ecto.Schema do
       foreign_key_types = if is_list(foreign_key_type) do
         foreign_key_type
       else
+        # TODO add a test for this branch
         List.duplicate(foreign_key_type, length(foreign_keys))
       end
 

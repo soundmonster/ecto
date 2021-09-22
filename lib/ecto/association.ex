@@ -1405,20 +1405,19 @@ defmodule Ecto.Association.ManyToMany do
     Util.inspect(values)
     %{queryable: queryable, join_through: join_through, join_keys: join_keys, owner: owner} = assoc
     # TODO support composite keys here
-    [[{join_owner_key, owner_key}], [{join_related_key, related_key}]] = join_keys
-    [join_through_keys, join_related_keys] = join_keys
+    [[{join_owner_key, owner_key}], join_related_keys] = join_keys
     join_related_keys = Enum.map(join_related_keys, fn {from, to} -> {to, from} end)
 
     owner_key_type = owner.__schema__(:type, owner_key)
     # owner_key_types = join_through_keys |> Keyword.values |> Enum.map(& owner.__schema__(:type, &1))
 
-    # TODO fix the hd(values)
     # We only need to join in the "join table". Preload and Ecto.assoc expressions can then filter
     # by &1.join_owner_key in ^... to filter down to the associated entries in the related table.
     query =
       from(q in (query || queryable),
         join: j in ^join_through, on: ^on_fields(join_related_keys),
-        where: field(j, ^join_owner_key) in type(^hd(values), {:in, ^owner_key_type})
+        # TODO fix the hd(values), use Enum.reduce
+        where: field(j, ^join_owner_key) in type(^Enum.map(values, &hd/1), {:in, ^owner_key_type})
       )
 
     query
@@ -1434,12 +1433,14 @@ defmodule Ecto.Association.ManyToMany do
   end
 
   @impl true
-  def preload_info(%{join_keys: [{join_owner_key, owner_key}, {_, _}], owner: owner} = refl) do
-    owner_key_type = owner.__schema__(:type, owner_key)
+  def preload_info(%{join_keys: [join_through_keys, _], owner: owner} = refl) do
+    join_owner_keys = Keyword.keys(join_through_keys)
+    owner_key_types = join_through_keys |> Keyword.values |> Enum.map(& owner.__schema__(:type, &1))
+    # owner_key_type = owner.__schema__(:type, owner_key)
 
     # When preloading use the last bound table (which is the join table) and the join_owner_key
     # to filter out related entities to the owner structs we're preloading with.
-    {:assoc, refl, {-1, [join_owner_key], [owner_key_type]}}
+    {:assoc, refl, {-1, join_owner_keys, owner_key_types}}
   end
 
   @impl true

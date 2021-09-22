@@ -2,13 +2,13 @@
 defmodule Util do
   defmacro inspect_unstruct(term) do
     quote do
-      IO.inspect(unquote(term), label: Util.label(__ENV__), structs: false)
+      IO.inspect(unquote(term), label: Util.label(__ENV__), charlists: :as_lists, structs: false)
     end
   end
 
   defmacro inspect(term) do
     quote do
-      IO.inspect(unquote(term), label: Util.label(__ENV__))
+      IO.inspect(unquote(term), label: Util.label(__ENV__), charlists: :as_lists)
     end
   end
 

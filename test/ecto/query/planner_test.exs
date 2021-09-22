@@ -67,6 +67,16 @@ defmodule Ecto.Query.PlannerTest do
     end
   end
 
+  defmodule CompositePk do
+    use Ecto.Schema
+
+    @primary_key false
+    schema "composites" do
+      field :id_1, :string, primary_key: true
+      field :id_2, :integer, primary_key: true
+    end
+  end
+
   defmodule Post do
     use Ecto.Schema
 
@@ -92,6 +102,8 @@ defmodule Ecto.Query.PlannerTest do
       many_to_many :crazy_comments, Comment, join_through: CommentPost, where: [text: "crazycomment"]
       many_to_many :crazy_comments_with_list, Comment, join_through: CommentPost, where: [text: {:in, ["crazycomment1", "crazycomment2"]}], join_where: [deleted: true]
       many_to_many :crazy_comments_without_schema, Comment, join_through: "comment_posts", join_where: [deleted: true]
+
+      many_to_many :composites, CompositePk, join_through: "composites_posts", join_keys: [[post_id: :id], [composite_id_1: :id_1, composite_id_2: :id_2]], join_where: [deleted: true]
     end
   end
 
@@ -964,6 +976,21 @@ defmodule Ecto.Query.PlannerTest do
       |> normalize_with_params()
 
     assert inspect(query) =~ "join: c1 in \"comment_posts\", on: c0.id == c1.comment_id and c1.deleted == ^..."
+    assert inspect(query) =~ "where: c1.post_id in ^..."
+    assert params ==  [true, 1]
+  end
+
+  test "normalize: many_to_many assoc join with composite keys" do
+    {query, params, _select} = from(post in Post, join: comment in assoc(post, :composites)) |> normalize_with_params()
+
+    assert inspect(query) =~ "join: c1 in Ecto.Query.PlannerTest.CompositePk, on: c2.composite_id_1 == c1.id_1 and c2.composite_id_2 == c1.id_2"
+    assert params == [true]
+
+    {query, params, _} =
+      Ecto.assoc(%Post{id: 1}, :composites)
+      |> normalize_with_params()
+
+    assert inspect(query) =~ "join: c1 in Ecto.Query.PlannerTest.CompositePk, on: c0.id_1 == c1.comment_id_1 and c0.id_2 == c1.comment_id_2"
     assert inspect(query) =~ "where: c1.post_id in ^..."
     assert params ==  [true, 1]
   end

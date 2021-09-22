@@ -1417,10 +1417,9 @@ defmodule Ecto.Association.ManyToMany do
     # by &1.join_owner_key in ^... to filter down to the associated entries in the related table.
     query =
       from(q in (query || queryable),
-        join: j in ^join_through, on: ^on_fields(join_related_keys)
+        join: j in ^join_through, on: ^on_fields(join_related_keys),
         where: field(j, ^join_owner_key) in type(^hd(values), {:in, ^owner_key_type})
       )
-    |> Util.inspect()
 
     query
     |> Ecto.Association.combine_assoc_query(assoc.where)

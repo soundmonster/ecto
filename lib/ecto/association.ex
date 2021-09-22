@@ -1375,20 +1375,12 @@ defmodule Ecto.Association.ManyToMany do
     ]
   end
 
-  def on_through_fields([{dst_key, src_key}] = _fields) do
-    dynamic([src, dst], field(dst, ^dst_key) == field(src, ^src_key))
+  def on_fields([{dst_key, src_key}] = _fields) do
+    dynamic([..., dst, src], field(dst, ^dst_key) == field(src, ^src_key))
   end
 
-  def on_through_fields([{dst_key, src_key} | fields]) do
-    dynamic([src, dst], field(dst, ^dst_key) == field(src, ^src_key) and ^on_through_fields(fields))
-  end
-
-  def on_related_fields([{dst_key, src_key}] = _fields) do
-    dynamic([_, dst, src], field(dst, ^dst_key) == field(src, ^src_key))
-  end
-
-  def on_related_fields([{dst_key, src_key} | fields]) do
-    dynamic([_, dst, src], field(dst, ^dst_key) == field(src, ^src_key) and ^on_related_fields(fields))
+  def on_fields([{dst_key, src_key} | fields]) do
+    dynamic([..., dst, src], field(dst, ^dst_key) == field(src, ^src_key) and ^on_fields(fields))
   end
 
   @impl true
@@ -1396,9 +1388,10 @@ defmodule Ecto.Association.ManyToMany do
                     join_through: join_through, join_keys: join_keys} = assoc) do
     [join_through_keys, join_related_keys] = join_keys
 
-    from(o in owner, # as: :owner,
-      join: j in ^join_through, on: ^on_through_fields(join_through_keys),
-      join: q in ^queryable, on: ^on_related_fields(join_related_keys))
+    from(o in owner,
+      join: j in ^join_through, on: ^on_fields(join_through_keys),
+      join: q in ^queryable, on: ^on_fields(join_related_keys))
+    # |> Util.inspect_unstruct()
     |> Ecto.Association.combine_joins_query(assoc.where, 2)
     |> Ecto.Association.combine_joins_query(assoc.join_where, 1)
   end
@@ -1409,19 +1402,27 @@ defmodule Ecto.Association.ManyToMany do
 
   @impl true
   def assoc_query(assoc, query, values) do
+    Util.inspect(values)
     %{queryable: queryable, join_through: join_through, join_keys: join_keys, owner: owner} = assoc
     # TODO support composite keys here
     [[{join_owner_key, owner_key}], [{join_related_key, related_key}]] = join_keys
+    [join_through_keys, join_related_keys] = join_keys
+    join_related_keys = Enum.map(join_related_keys, fn {from, to} -> {to, from} end)
 
     owner_key_type = owner.__schema__(:type, owner_key)
+    # owner_key_types = join_through_keys |> Keyword.values |> Enum.map(& owner.__schema__(:type, &1))
 
     # TODO fix the hd(values)
     # We only need to join in the "join table". Preload and Ecto.assoc expressions can then filter
     # by &1.join_owner_key in ^... to filter down to the associated entries in the related table.
-    from(q in (query || queryable),
-      join: j in ^join_through, on: field(q, ^related_key) == field(j, ^join_related_key),
-      where: field(j, ^join_owner_key) in type(^hd(values), {:in, ^owner_key_type})
-    )
+    query =
+      from(q in (query || queryable),
+        join: j in ^join_through, on: ^on_fields(join_related_keys)
+        where: field(j, ^join_owner_key) in type(^hd(values), {:in, ^owner_key_type})
+      )
+    |> Util.inspect()
+
+    query
     |> Ecto.Association.combine_assoc_query(assoc.where)
     |> Ecto.Association.combine_joins_query(assoc.join_where, 1)
   end

@@ -790,7 +790,7 @@ defmodule Ecto.Association.Has do
   end
 
   @impl true
-  def struct(module, name, opts) do 
+  def struct(module, name, opts) do
     queryable = Keyword.fetch!(opts, :queryable)
     cardinality = Keyword.fetch!(opts, :cardinality)
     related = Ecto.Association.related_from_query(queryable, name)
@@ -870,7 +870,14 @@ defmodule Ecto.Association.Has do
   @impl true
   def build(%{owner_key: owner_key, related_key: related_key} = refl, owner, attributes) do
     data = refl |> build(owner) |> struct(attributes)
-    %{data | related_key => Map.get(owner, owner_key)}
+    if (is_list(owner_key) and is_list(related_key)) do
+      Enum.zip(owner_key, related_key)
+      |> Enum.reduce(data, fn {p_owner_key, p_related_key}, acc ->
+        %{acc | p_related_key => Map.get(owner, p_owner_key)}
+      end)
+    else
+      %{data | related_key => Map.get(owner, owner_key)}
+    end
   end
 
   @impl true
@@ -1418,13 +1425,13 @@ defmodule Ecto.Association.ManyToMany do
     # We only need to join in the "join table". Preload and Ecto.assoc expressions can then filter
     # by &1.join_owner_key in ^... to filter down to the associated entries in the related table.
 
-    dst_binding = if is_nil(query) do 
+    dst_binding = if is_nil(query) do
       1
     else
       Ecto.Query.Builder.count_binds(query)
     end
 
-    query = 
+    query =
       from(q in (query || queryable))
       |> Ecto.Association.join_on_keys(join_through, Keyword.keys(join_related_keys), Keyword.values(join_related_keys), dst_binding, 0)
       |> where_keys(owner, 1, join_through_keys, values)
